@@ -13,21 +13,18 @@
 #define BUILT_IN_COUNT 4 /* The number of commands built-in to osh */
 
 char *built_in_functions[BUILT_IN_COUNT] = {"cd", "help", "exit", "!!"};
-char *prev_args[MAX_LINE / 2 + 1];
-int osh_run(char **args, char *prev_line);
-int osh_run_built_in(char **args, char *prev_line);
-int osh_run_process(char **args);
+int osh_run(char **args, int is_bg, char *previous_line);
+int osh_run_built_in(char **args, char *previous_line);
+int osh_run_process(char **args, int is_background);
 void osh_parse(char *line, char **args);
 int built_in(char **args);
-void set_prev_args(char *line);
-int command_count = 0;
+void save_previous(char *previous_line, char *line);
+int is_bg(char **args);
 
 void osh_parse(char *line, char **args)
 {
     char *split = strtok(line, " ");
     int i = 0;
-    args[i] = split;
-
     while (split != NULL)
     {
         args[i] = split;
@@ -50,12 +47,7 @@ int built_in(char **args)
     return 0;
 }
 
-void set_prev_args(char *line)
-{
-    osh_parse(line, prev_args);
-}
-
-int osh_run_built_in(char **args, char *prev_line)
+int osh_run_built_in(char **args, char *previous_line)
 {
     if (strcmp(*args, "cd") == 0)
     {
@@ -77,19 +69,27 @@ int osh_run_built_in(char **args, char *prev_line)
     }
     else if (strcmp(*args, "!!") == 0)
     {
-        //fprintf(stderr, "osh: %s\n", prev_args[0]);
-        //perror(prev_args);
-        //return osh_run_previous();
-        char *l_args[MAX_LINE / 2 + 1];
-        osh_parse(prev_line, l_args);
-        //fprintf(stderr, "osh: %s\n", l_args[0]);
-        return osh_run(l_args, "");
+        int is_background = 0;
+        char *previous_args[MAX_LINE / 2 + 1];
+        if (strlen(previous_line) == 0)
+        {
+            fprintf(stderr, "osh: no command in history \n");
+        }
+        else
+        {
+            char previous_copy[MAX_LINE];
+            save_previous(previous_copy, previous_line);
+            osh_parse(previous_line, previous_args);
+            is_background = is_bg(args);
+            return osh_run(previous_args, is_background, previous_copy);
+        }
     }
     return 1;
 }
 
-int osh_run_process(char **args)
+int osh_run_process(char **args, int is_background)
 {
+    //printf("%d", is_background);
     pid_t pid;
     /* fork a child process */
     pid = fork();
@@ -107,32 +107,64 @@ int osh_run_process(char **args)
     }
     else
     { /* parent process will invoke wait() for the child to complete unless command included & */
-        wait(NULL);
+        if (!is_background)
+            waitpid(pid, NULL, 0);
+        //wait(NULL);
         //printf("Child Complete \n");
     }
     return 1;
 }
 
-int osh_run(char **args, char *prev_line)
+int osh_run(char **args, int is_background, char *previous_line)
 {
-    // Run either built-in or process according to command
     if (built_in(args))
     {
-        return osh_run_built_in(args, prev_line);
+        return osh_run_built_in(args, previous_line);
     }
     else
     {
-        return osh_run_process(args);
+        return osh_run_process(args, is_background);
     }
+}
+
+void save_previous(char *previous_line, char *line)
+{
+    if (strcmp(line, "!!") != 0)
+    {
+        strcpy(previous_line, line);
+    }
+}
+
+int is_bg(char **args)
+{
+    int i;
+    while (args[i] != NULL)
+        i++;
+
+    int j;
+    while (args[i - 1][j] != '\0')
+        j++;
+
+    //printf("%c \n", args[i - 1][j - 1]);
+    if (args[i - 1][j - 1] == '&')
+    {
+        args[i - 1][j - 1] = '\0';
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+    return 0;
 }
 
 int main(void)
 {
     char line[MAX_LINE];
-    char line_copy[MAX_LINE];
+    char previous_line[MAX_LINE];
     char *args[MAX_LINE / 2 + 1]; /* command line arguments */
     int shouldrun = 1;            /* flag to determine when to exit program */
-    char prev_line[MAX_LINE] = "";
+    int is_background = 0;
     while (shouldrun)
     {
         // 1. Print prompt
@@ -140,18 +172,15 @@ int main(void)
         getcwd(cwd, sizeof(cwd));
         printf("osh: %s $ ", cwd);
         fflush(stdout);
-
         // 2. Read command line
         gets(line);
-        strcpy(line_copy, line);
-        printf("%s\n", prev_line);
+        save_previous(previous_line, line);
         // 3. Parse command
         osh_parse(line, args);
-
+        is_background = is_bg(args);
         // 4. Run command
-        shouldrun = osh_run(args, prev_line);
-
-        strcpy(prev_line, line_copy);
+        shouldrun = osh_run(args, is_background, previous_line);
     }
     return 0;
 }
+
