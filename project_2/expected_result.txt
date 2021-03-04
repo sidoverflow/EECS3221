@@ -27,4 +27,3 @@ Running task = [P15] [1] [25] for 25 units
 Average waiting time = 306.40
 Average turnaround time = 333.20
 Average response time = 306.40
-
